@@ -1,0 +1,10 @@
+QR Plate — Autodesk Fusion add-in
+Copyright (c) 2026 Joel Cressy
+Licensed under the MIT License (see LICENSE).
+
+This product bundles the following third-party software:
+
+- segno 1.6.6 (https://github.com/heuer/segno)
+  Copyright (c) 2016 - 2025 Lars Heuer
+  Licensed under the BSD 3-Clause License.
+  Full license text: lib/segno-1.6.6.dist-info/licenses/

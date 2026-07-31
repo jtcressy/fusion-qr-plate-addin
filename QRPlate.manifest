@@ -1,0 +1,14 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "id": "jtcressy.qrplate",
+    "author": "Joel Cressy",
+    "description": {
+        "": "Parametric two-material QR code plate generator: Wi-Fi, contact card, phone, SMS, email, map location, calendar event, payment URI, or plain text, with optional title text."
+    },
+    "version": "1.0.0",
+    "runOnStartup": true,
+    "supportedOS": "windows|mac",
+    "editEnabled": true,
+    "iconFilename": "resources/AddInIcon.svg"
+}

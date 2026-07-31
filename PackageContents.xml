@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Autodesk App Store / ApplicationPlugins autoloader descriptor.
+
+  Only used when the add-in is packaged as an `.bundle` for App Store
+  distribution (see docs/appstore-submission.md). A normal GitHub install
+  into the AddIns folder ignores this file and reads QRPlate.manifest.
+
+  ProductCode must stay stable across releases; AppVersion must match the
+  "version" field in QRPlate.manifest (CI enforces the tag/manifest match).
+-->
+<ApplicationPackage SchemaVersion="1.0"
+                    AutodeskProduct="Fusion360"
+                    Name="QR Plate"
+                    Description="Parametric two-material QR code plate generator"
+                    AppVersion="1.0.0"
+                    ProductType="Application"
+                    Author="Joel Cressy"
+                    ProductCode="{7F3B21C4-9A85-4E1D-B6F2-5C08D4A7E913}"
+                    Icon="./Contents/resources/app-icon-120.png"
+                    HelpFile="./Contents/docs/help.html"
+                    UpgradeCode="{2D9E67A1-4B30-4C88-9F55-A1E7C2B60D74}">
+  <CompanyDetails Name="Joel Cressy"
+                  Url="https://github.com/jtcressy/fusion-qr-plate-addin"
+                  Email="jtcressy@gmail.com"/>
+  <Components Description="Fusion add-in">
+    <RuntimeRequirements OS="Win64|MacOS" Platform="Fusion360" SeriesMin="" SeriesMax=""/>
+    <ComponentEntry AppName="QRPlate"
+                    Version="1.0.0"
+                    ModuleName="./Contents/QRPlate.py"
+                    AppDescription="Generate printable two-material QR code plates"
+                    LoadOnAutoCADStartup="False"/>
+  </Components>
+</ApplicationPackage>
