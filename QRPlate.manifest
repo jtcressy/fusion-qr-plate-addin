@@ -6,7 +6,7 @@
     "description": {
         "": "Parametric two-material QR code plate generator: Wi-Fi, contact card, phone, SMS, email, map location, calendar event, payment URI, or plain text, with optional title text."
     },
-    "version": "1.1.0",
+    "version": "1.2.0",
     "runOnStartup": true,
     "supportedOS": "windows|mac",
     "editEnabled": true,
