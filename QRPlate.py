@@ -3,9 +3,10 @@
 Adds a "QR Code Plate" command to the SOLID > Create panel. The dialog offers
 several content modes (Wi-Fi, contact card, phone, SMS, email, map location,
 calendar event, payment URI, plain text), plus plate dimensions and optional
-title text, and (re)builds a two-component plate: "Base" (background material)
-and "Code" (raised QR + title) for two-material printing. Values are
-remembered per-document, so rerunning the command pre-fills the last inputs.
+title text, and (re)builds one print-in-place solid: raised code and title in
+their own Z band, printed in a second color via a slicer filament change at
+the base thickness. Values are remembered per-document, so rerunning the
+command pre-fills the last inputs.
 """
 
 import importlib
@@ -214,7 +215,6 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
 
             for cls, event in (
                 (ExecuteHandler, cmd.execute),
-                (ExecutePreviewHandler, cmd.executePreview),
                 (ValidateInputsHandler, cmd.validateInputs),
                 (InputChangedHandler, cmd.inputChanged),
             ):
@@ -249,15 +249,9 @@ class ValidateInputsHandler(adsk.core.ValidateInputsEventHandler):
             args.areInputsValid = False
 
 
-class ExecutePreviewHandler(adsk.core.CommandEventHandler):
-    def notify(self, args):
-        try:
-            core.generate(_design(), _collect_params(args.command.commandInputs))
-            args.isValidResult = True
-        except Exception:
-            args.isValidResult = False
-
-
+# No executePreview handler on purpose: Fusion fires preview on every input
+# change, and a full plate rebuild (booleans, extrudes, timeline edits) per
+# keystroke froze the UI. The dialog previews nothing; OK builds once.
 class ExecuteHandler(adsk.core.CommandEventHandler):
     def notify(self, args):
         try:
@@ -286,8 +280,9 @@ def run(_context):
             "Generate a two-material QR code plate.\n\n"
             "Content modes: Wi-Fi network, contact card, phone, SMS, email, "
             "map location, calendar event, payment URI, or plain text. "
-            "Creates aligned Base and Code components for multi-material "
-            "printing. Rerun to edit the stored content or dimensions.",
+            "Builds one print-in-place solid; set a filament change at the "
+            "base thickness to print the raised code in a second color. "
+            "Rerun to edit the stored content or dimensions.",
             "resources/command",
         )
         created = CommandCreatedHandler()

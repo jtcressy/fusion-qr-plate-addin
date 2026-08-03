@@ -20,6 +20,8 @@ import segno  # vendored in ./lib
 import payloads
 from payloads import MODES, SECURITY_MAP, build_payload
 
+PARAMETRIC = adsk.fusion.DesignTypes.ParametricDesignType
+
 ATTR_GROUP = "QRPlate"
 # Documents created by the pre-rename add-in stored their parameters and the
 # component marker under this group; still read (and clean up) both.
@@ -67,25 +69,38 @@ def save_params(design, params):
 
 
 def _is_ours(entity):
-    return any(entity.attributes.itemByName(group, "marker") for group in _attr_groups())
+    try:
+        return any(
+            entity.attributes.itemByName(group, "marker") for group in _attr_groups()
+        )
+    except (AttributeError, RuntimeError):
+        return False  # not every timeline entity supports attributes
+
+
+def mark(entity):
+    try:
+        entity.attributes.add(ATTR_GROUP, "marker", "1")
+    except (AttributeError, RuntimeError):
+        pass
 
 
 def delete_previous(design):
     root = design.rootComponent
     for occ in [occ for occ in root.occurrences if _is_ours(occ.component)]:
         occ.deleteMe()
-    # Part Design documents hold the plate as loose bodies in the root
-    # component. Deleting one body also removes the feature that created it,
-    # which can take sibling bodies with it, so re-scan after every delete
-    # rather than iterating over a list that goes stale.
-    while True:
-        doomed = next((body for body in root.bRepBodies if _is_ours(body)), None)
-        if doomed is None:
-            return
-        remaining = root.bRepBodies.count
-        doomed.deleteMe()
-        if root.bRepBodies.count >= remaining:
-            return  # nothing was removed; stop rather than spin
+
+    # In a parametric design bodies are feature output: BRepBody.deleteMe()
+    # silently does nothing, so the previous plate has to be removed by
+    # deleting the timeline features that built it (newest first).
+    timeline = design.timeline if design.designType == PARAMETRIC else None
+    if timeline:
+        for index in range(timeline.count - 1, -1, -1):
+            entity = timeline.item(index).entity
+            if _is_ours(entity):
+                entity.deleteMe()  # the feature, not the timeline wrapper
+
+    for body in [body for body in root.bRepBodies if _is_ours(body)]:
+        body.deleteMe()
 
 
 def _rounded_rect_profile(sketch, x0, y0, x1, y1, r):
@@ -136,18 +151,24 @@ def _union_tree(temp_mgr, bodies):
     return bodies[0]
 
 
-def _apply_appearance(design, bodies, library_name):
-    """Best-effort: color the given bodies from the Fusion library."""
+def _paint(design, body, top_z):
+    """White body, black raised top faces, so the viewport preview scans."""
     try:
         app = adsk.core.Application.get()
-        fusion_lib = app.materialLibraries.itemByName("Fusion Appearance Library")
-        source = fusion_lib.appearances.itemByName(library_name)
-        local = design.appearances.itemByName(library_name)
-        if not local:
-            local = design.appearances.addByOriginal(source, library_name)
-        for body in bodies:
-            if body.isSolid:
-                body.appearance = local
+        library = app.materialLibraries.itemByName("Fusion Appearance Library")
+
+        def appearance(name):
+            # Assigning a library appearance copies it into the design.
+            return design.appearances.itemByName(name) or library.appearances.itemByName(name)
+
+        body.appearance = appearance("Plastic - Matte (White)")
+        dark = appearance("Plastic - Matte (Black)")
+        for face in body.faces:
+            try:
+                if abs(face.centroid.z - top_z) < 1e-5:
+                    face.appearance = dark
+            except RuntimeError:
+                continue  # non-planar faces without a simple centroid
     except Exception:
         pass  # cosmetic only
 
@@ -177,39 +198,24 @@ def generate(design, params):
     y_bottom = -half - band
 
     delete_previous(design)
+    timeline = design.timeline if design.designType == PARAMETRIC else None
+    timeline_start = timeline.count if timeline else 0
 
-    root = design.rootComponent
-    identity = adsk.core.Matrix3D.create()
-
-    # Child components per material: the QR's dark modules are naturally
-    # disjoint islands, which Fusion splits into many bodies. Grouping each
-    # material in its own component keeps the browser tidy and lets the user
-    # export "Base" and "Code" as one aligned mesh each.
-    #
-    # Part Design documents allow only one component, so there everything is
-    # built directly in the root component and the two materials are told
-    # apart by body name instead.
-    try:
-        plate_comp = root.occurrences.addNewComponent(identity).component
-        plate_comp.name = "QR Plate"
-        plate_comp.attributes.add(ATTR_GROUP, "marker", "1")
-        base_comp = plate_comp.occurrences.addNewComponent(identity).component
-        base_comp.name = "Base"
-        code_comp = plate_comp.occurrences.addNewComponent(identity).component
-        code_comp.name = "Code"
-    except RuntimeError:
-        base_comp = code_comp = root
-    # Bodies already in the target component belong to the user, not to us.
-    pre_existing = {body.entityToken for body in base_comp.bRepBodies}
+    # Built in the root component as one solid body: no components, no
+    # assembly, prints in place. The raised code sits in its own Z band, so
+    # colour is a filament change at the base thickness in the slicer.
+    comp = design.rootComponent
+    # Bodies already here belong to the user, not to us.
+    pre_existing = {body.entityToken for body in comp.bRepBodies}
 
     # --- Base plate: rounded-rectangle extrude + top rim chamfer ---
-    sketch = base_comp.sketches.add(base_comp.xYConstructionPlane)
+    sketch = comp.sketches.add(comp.xYConstructionPlane)
     sketch.isComputeDeferred = True
     _rounded_rect_profile(sketch, -half, y_bottom, half, half, corner_r)
     sketch.isComputeDeferred = False
     sketch.name = "Base outline"
 
-    base_ext = base_comp.features.extrudeFeatures.addSimple(
+    base_ext = comp.features.extrudeFeatures.addSimple(
         sketch.profiles.item(0),
         adsk.core.ValueInput.createByReal(base_h),
         adsk.fusion.FeatureOperations.NewBodyFeatureOperation,
@@ -229,7 +235,7 @@ def generate(design, params):
                 if loop.isOuter:
                     for edge in loop.edges:
                         edges.add(edge)
-            chamfers = base_comp.features.chamferFeatures
+            chamfers = comp.features.chamferFeatures
             chamfer_input = chamfers.createInput2()
             chamfer_input.chamferEdgeSets.addEqualDistanceChamferEdgeSet(
                 edges, adsk.core.ValueInput.createByReal(chamfer), True
@@ -238,40 +244,33 @@ def generate(design, params):
         except Exception:
             pass  # cosmetic only; never fail the build over the rim chamfer
 
-    # --- QR layer: one temporary-BRep body from merged module runs ---
+    # --- Raised layer: one temporary-BRep body for QR modules AND title ---
     temp_mgr = adsk.fusion.TemporaryBRepManager.get()
     x_dir = adsk.core.Vector3D.create(1, 0, 0)
     y_dir = adsk.core.Vector3D.create(0, 1, 0)
     eps = 0.0004  # fuse boxes that only share an edge
-    z_center = base_h + code_h / 2
+
+    def raised_box(x_center, y_center, length, width):
+        obb = adsk.core.OrientedBoundingBox3D.create(
+            adsk.core.Point3D.create(x_center, y_center, base_h + code_h / 2),
+            x_dir,
+            y_dir,
+            length + eps,
+            width + eps,
+            code_h,
+        )
+        return temp_mgr.createBox(obb)
+
     boxes = []
     for row, c0, c1 in _module_runs(matrix):
         x_center = -half + (quiet + (c0 + c1 + 1) / 2) * pitch
         y_center = half - (quiet + row + 0.5) * pitch
-        length = (c1 - c0 + 1) * pitch + eps
-        obb = adsk.core.OrientedBoundingBox3D.create(
-            adsk.core.Point3D.create(x_center, y_center, z_center),
-            x_dir,
-            y_dir,
-            length,
-            pitch + eps,
-            code_h,
-        )
-        boxes.append(temp_mgr.createBox(obb))
-    qr_temp = _union_tree(temp_mgr, boxes)
+        boxes.append(raised_box(x_center, y_center, (c1 - c0 + 1) * pitch, pitch))
 
-    parametric = design.designType == adsk.fusion.DesignTypes.ParametricDesignType
-    if parametric:
-        base_feature = code_comp.features.baseFeatures.add()
-        base_feature.startEdit()
-        code_comp.bRepBodies.add(qr_temp, base_feature)
-        base_feature.finishEdit()
-    else:
-        code_comp.bRepBodies.add(qr_temp)
-
-    # --- Optional title text, also in the Code component ---
-    # Fusion's SketchText API produces empty glyph geometry in some builds,
-    # so the text is constructed directly from font outlines instead.
+    # Title text: glyph outlines rasterised into scanline run-boxes, same as
+    # the QR modules. (Fusion's SketchText API emits empty geometry in current
+    # builds, and face+thicken features took ~2 s of UI-blocking recompute;
+    # 0.15 mm scanlines are far below what a nozzle can reproduce anyway.)
     if title:
         import text_outline
 
@@ -291,79 +290,67 @@ def generate(design, params):
         band_cy = (y_bottom + -half) / 2
         dx, dy = -ink_cx, band_cy - ink_cy
 
-        def wire(polygon):
-            points = [
-                adsk.core.Point3D.create(x * em + dx, y * em + dy, base_h)
-                for x, y in polygon
-            ]
-            lines = [
-                adsk.core.Line3D.create(points[i], points[(i + 1) % len(points)])
-                for i in range(len(points))
-            ]
-            body, _ = temp_mgr.createWireFromCurves(lines)
-            return body
-
-        face_bodies = [
-            temp_mgr.createFaceFromPlanarWires([wire(outer)] + [wire(h) for h in holes])
+        polygons = [
+            [(x * em + dx, y * em + dy) for x, y in poly]
             for outer, holes in groups
+            for poly in [outer] + list(holes)
         ]
+        step = 0.015  # cm; scanline height for the letter outlines
+        y_min = min(y for poly in polygons for _, y in poly)
+        y_max = max(y for poly in polygons for _, y in poly)
+        row_count = max(1, int((y_max - y_min) / step) + 1)
+        for row in range(row_count):
+            yc = y_min + (row + 0.5) * step
+            hits = []
+            for poly in polygons:
+                m = len(poly)
+                for i in range(m):
+                    xa, ya = poly[i]
+                    xb, yb = poly[(i + 1) % m]
+                    if (ya > yc) != (yb > yc):
+                        hits.append(xa + (yc - ya) * (xb - xa) / (yb - ya))
+            hits.sort()
+            for i in range(0, len(hits) - 1, 2):
+                width = hits[i + 1] - hits[i]
+                if width > 0.004:  # skip sub-hairline slivers
+                    boxes.append(
+                        raised_box((hits[i] + hits[i + 1]) / 2, yc, width, step)
+                    )
 
-        if parametric:
-            text_base_feature = code_comp.features.baseFeatures.add()
-            text_base_feature.startEdit()
-            for face_body in face_bodies:
-                code_comp.bRepBodies.add(face_body, text_base_feature)
-            text_base_feature.finishEdit()
-        else:
-            for face_body in face_bodies:
-                code_comp.bRepBodies.add(face_body)
+    raised_temp = _union_tree(temp_mgr, boxes)
 
-        surface_bodies = [b for b in code_comp.bRepBodies if not b.isSolid]
-        faces = adsk.core.ObjectCollection.create()
-        for body in surface_bodies:
-            for face in body.faces:
-                faces.add(face)
+    parametric = design.designType == PARAMETRIC
+    if parametric:
+        base_feature = comp.features.baseFeatures.add()
+        base_feature.startEdit()
+        comp.bRepBodies.add(raised_temp, base_feature)
+        base_feature.finishEdit()
+    else:
+        comp.bRepBodies.add(raised_temp)
 
-        def thicken(amount):
-            thicken_input = code_comp.features.thickenFeatures.createInput(
-                faces,
-                adsk.core.ValueInput.createByReal(amount),
-                False,
-                adsk.fusion.FeatureOperations.NewBodyFeatureOperation,
-                False,
-            )
-            return code_comp.features.thickenFeatures.add(thicken_input)
+    # Fuse everything into a single solid. The raised code occupies its own Z
+    # band above the base, so one body still prints in two colours: add a
+    # filament change at the base thickness in the slicer.
+    tools = adsk.core.ObjectCollection.create()
+    for body in comp.bRepBodies:
+        if body.isSolid and body.entityToken not in pre_existing:
+            if body.entityToken != base_body.entityToken:
+                tools.add(body)
+    if tools.count:
+        combine_input = comp.features.combineFeatures.createInput(base_body, tools)
+        combine_input.operation = adsk.fusion.FeatureOperations.JoinFeatureOperation
+        comp.features.combineFeatures.add(combine_input)
+    base_body.name = "QR Plate"
+    _paint(design, base_body, base_h + code_h)
 
-        text_feature = thicken(code_h)
-        top_z = max(b.boundingBox.maxPoint.z for b in text_feature.bodies)
-        if top_z <= base_h + 1e-6:
-            text_feature.deleteMe()
-            text_feature = thicken(-code_h)
-
-        for body in surface_bodies:
-            body.isLightBulbOn = False
-
-    # Tag what we made so a rerun can delete exactly it, and colour the two
-    # materials differently. In a Part Design document these bodies sit in the
-    # root component alongside the user's own, hence the token comparison.
-    components = [base_comp] if code_comp is base_comp else [base_comp, code_comp]
-    ours = [
-        body
-        for component in components
-        for body in component.bRepBodies
-        if body.entityToken not in pre_existing
-    ]
-    base_token = base_body.entityToken
+    # Tag what we made so a rerun deletes exactly it and nothing of the user's:
+    # the bodies, and the timeline features that produced them.
+    ours = [b for b in comp.bRepBodies if b.entityToken not in pre_existing]
     for body in ours:
-        body.attributes.add(ATTR_GROUP, "marker", "1")
-        if code_comp is root and body.entityToken != base_token:
-            body.name = "Code"  # Fusion appends a suffix for duplicates
-    _apply_appearance(design, [base_body], "Plastic - Matte (White)")
-    _apply_appearance(
-        design,
-        [body for body in ours if body.entityToken != base_token],
-        "Plastic - Matte (Black)",
-    )
+        mark(body)
+    if timeline:
+        for index in range(timeline_start, timeline.count):
+            mark(timeline.item(index).entity)
 
     save_params(design, params)
 
@@ -373,7 +360,7 @@ def generate(design, params):
         "plate_mm": [round(plate_w * 10, 2), round((plate_w + band) * 10, 2)],
         "dark_modules": sum(map(sum, matrix)),
         "code_bodies": sum(1 for b in ours if b.isSolid) - 1,  # minus the base
-        "layout": "root" if code_comp is root else "components",
+        "layout": "root" if True else "components",
         "payload_len": len(payload),
         "mode": params.get("mode", payloads.MODE_WIFI),
     }

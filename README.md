@@ -14,10 +14,9 @@ printing: a solid `Base` and a raised `Code` layer.
   map location · calendar event · payment/crypto URI · plain text
 - **Optional title text** raised in the same layer as the code, built from
   real font outlines (no Fusion SketchText dependency — see [Notes](#notes))
-- **Two components, one origin** — `Base` and `Code` export as separate
-  meshes that drop into a slicer already aligned (in a Part Design document,
-  which allows only one component, they are built as `Base` and `Code`
-  bodies in the root component instead)
+- **One print-in-place solid** — the raised code sits in its own Z band
+  above the base, so a filament change at the base thickness prints it in a
+  second color; no assemblies, no aligning meshes
 - **Live feedback** — the dialog reports the QR grid and module size and
   warns when a long payload makes modules too small to print reliably
 - **Fully parametric** — plate width, thicknesses, corner radius, rim
@@ -66,11 +65,11 @@ Then enable it: <kbd>Shift</kbd>+<kbd>S</kbd> → **Add-Ins** → **QRPlate** �
 1. Pick a **Content** type and fill in its fields.
 2. Optionally add **Title** text shown under the code.
 3. Adjust **Plate** dimensions if needed.
-4. **OK** builds a `QR Plate` component containing `Base` and `Code`.
+4. **OK** builds a single `QR Plate` body.
 
-To print in two materials, right-click each of `Base` and `Code` in the
-browser and save or export it as a mesh, then assign a different filament to
-each in your slicer. They share the design origin, so no realignment needed.
+To print in two colors, export the body as a mesh and add a filament change
+at the base thickness (default 4.2 mm) in your slicer — everything above it
+is the code and title.
 
 Rerun the command in the same document to edit what is encoded — it replaces
 the existing plate rather than adding a second one.
