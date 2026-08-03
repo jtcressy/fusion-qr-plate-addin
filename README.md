@@ -65,7 +65,11 @@ Then enable it: <kbd>Shift</kbd>+<kbd>S</kbd> → **Add-Ins** → **QRPlate** �
 1. Pick a **Content** type and fill in its fields.
 2. Optionally add **Title** text shown under the code.
 3. Adjust **Plate** dimensions if needed.
-4. **OK** builds a single `QR Plate` body.
+4. Tick **Preview** to build it in the viewport without closing the dialog.
+5. **OK** builds a single `QR Plate` body.
+
+Preview is off by default and rebuilds on every input change while ticked, so
+fill the fields first, then tick it.
 
 To print in two colors, export the body as a mesh and add a filament change
 at the base thickness (default 4.2 mm) in your slicer — everything above it
@@ -92,12 +96,15 @@ the existing plate rather than adding a second one.
 ## Development
 
 The add-in has no build step. Edit the source, then restart it from
-<kbd>Shift</kbd>+<kbd>S</kbd> (**Stop**, then **Run**) — `run()` reloads its
-own modules, so restarting is enough to pick up changes.
+<kbd>Shift</kbd>+<kbd>S</kbd> (**Stop**, then **Run**). Fusion caches an
+add-in's entry module across a restart, so `QRPlate.py` is a stub that
+reloads everything else — keep it that way and any edit takes effect on
+restart.
 
 | File | Responsibility |
 | --- | --- |
-| `QRPlate.py` | Add-in entry point, command definition, dialog UI |
+| `QRPlate.py` | Entry stub — reloads and starts `ui.py` |
+| `ui.py` | Command definition, dialog, event handlers |
 | `payloads.py` | Builds the encoded string for each content type |
 | `qr_plate_core.py` | Fusion geometry: base, QR modules, title text |
 | `text_outline.py` | Glyph outlines → polygons with hole detection |
