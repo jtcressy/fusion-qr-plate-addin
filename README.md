@@ -15,7 +15,9 @@ printing: a solid `Base` and a raised `Code` layer.
 - **Optional title text** raised in the same layer as the code, built from
   real font outlines (no Fusion SketchText dependency — see [Notes](#notes))
 - **Two components, one origin** — `Base` and `Code` export as separate
-  meshes that drop into a slicer already aligned
+  meshes that drop into a slicer already aligned (in a Part Design document,
+  which allows only one component, they are built as `Base` and `Code`
+  bodies in the root component instead)
 - **Live feedback** — the dialog reports the QR grid and module size and
   warns when a long payload makes modules too small to print reliably
 - **Fully parametric** — plate width, thicknesses, corner radius, rim

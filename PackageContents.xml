@@ -13,7 +13,7 @@
                     AutodeskProduct="Fusion360"
                     Name="QR Plate"
                     Description="Parametric two-material QR code plate generator"
-                    AppVersion="1.0.0"
+                    AppVersion="1.0.1"
                     ProductType="Application"
                     Author="Joel Cressy"
                     ProductCode="{7F3B21C4-9A85-4E1D-B6F2-5C08D4A7E913}"
@@ -26,7 +26,7 @@
   <Components Description="Fusion add-in">
     <RuntimeRequirements OS="Win64|MacOS" Platform="Fusion360" SeriesMin="" SeriesMax=""/>
     <ComponentEntry AppName="QRPlate"
-                    Version="1.0.0"
+                    Version="1.0.1"
                     ModuleName="./Contents/QRPlate.py"
                     AppDescription="Generate printable two-material QR code plates"
                     LoadOnAutoCADStartup="False"/>

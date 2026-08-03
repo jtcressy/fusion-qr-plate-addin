@@ -66,18 +66,26 @@ def save_params(design, params):
     design.attributes.add(ATTR_GROUP, "params", json.dumps(params))
 
 
+def _is_ours(entity):
+    return any(entity.attributes.itemByName(group, "marker") for group in _attr_groups())
+
+
 def delete_previous(design):
     root = design.rootComponent
-    doomed = [
-        occ
-        for occ in root.occurrences
-        if any(
-            occ.component.attributes.itemByName(group, "marker")
-            for group in _attr_groups()
-        )
-    ]
-    for occ in doomed:
+    for occ in [occ for occ in root.occurrences if _is_ours(occ.component)]:
         occ.deleteMe()
+    # Part Design documents hold the plate as loose bodies in the root
+    # component. Deleting one body also removes the feature that created it,
+    # which can take sibling bodies with it, so re-scan after every delete
+    # rather than iterating over a list that goes stale.
+    while True:
+        doomed = next((body for body in root.bRepBodies if _is_ours(body)), None)
+        if doomed is None:
+            return
+        remaining = root.bRepBodies.count
+        doomed.deleteMe()
+        if root.bRepBodies.count >= remaining:
+            return  # nothing was removed; stop rather than spin
 
 
 def _rounded_rect_profile(sketch, x0, y0, x1, y1, r):
@@ -128,8 +136,8 @@ def _union_tree(temp_mgr, bodies):
     return bodies[0]
 
 
-def _apply_appearance(design, component, library_name):
-    """Best-effort: color a component's bodies from the Fusion library."""
+def _apply_appearance(design, bodies, library_name):
+    """Best-effort: color the given bodies from the Fusion library."""
     try:
         app = adsk.core.Application.get()
         fusion_lib = app.materialLibraries.itemByName("Fusion Appearance Library")
@@ -137,7 +145,7 @@ def _apply_appearance(design, component, library_name):
         local = design.appearances.itemByName(library_name)
         if not local:
             local = design.appearances.addByOriginal(source, library_name)
-        for body in component.bRepBodies:
+        for body in bodies:
             if body.isSolid:
                 body.appearance = local
     except Exception:
@@ -172,18 +180,27 @@ def generate(design, params):
 
     root = design.rootComponent
     identity = adsk.core.Matrix3D.create()
-    plate_comp = root.occurrences.addNewComponent(identity).component
-    plate_comp.name = "QR Plate"
-    plate_comp.attributes.add(ATTR_GROUP, "marker", "1")
 
     # Child components per material: the QR's dark modules are naturally
     # disjoint islands, which Fusion splits into many bodies. Grouping each
     # material in its own component keeps the browser tidy and lets the user
     # export "Base" and "Code" as one aligned mesh each.
-    base_comp = plate_comp.occurrences.addNewComponent(identity).component
-    base_comp.name = "Base"
-    code_comp = plate_comp.occurrences.addNewComponent(identity).component
-    code_comp.name = "Code"
+    #
+    # Part Design documents allow only one component, so there everything is
+    # built directly in the root component and the two materials are told
+    # apart by body name instead.
+    try:
+        plate_comp = root.occurrences.addNewComponent(identity).component
+        plate_comp.name = "QR Plate"
+        plate_comp.attributes.add(ATTR_GROUP, "marker", "1")
+        base_comp = plate_comp.occurrences.addNewComponent(identity).component
+        base_comp.name = "Base"
+        code_comp = plate_comp.occurrences.addNewComponent(identity).component
+        code_comp.name = "Code"
+    except RuntimeError:
+        base_comp = code_comp = root
+    # Bodies already in the target component belong to the user, not to us.
+    pre_existing = {body.entityToken for body in base_comp.bRepBodies}
 
     # --- Base plate: rounded-rectangle extrude + top rim chamfer ---
     sketch = base_comp.sketches.add(base_comp.xYConstructionPlane)
@@ -326,8 +343,27 @@ def generate(design, params):
         for body in surface_bodies:
             body.isLightBulbOn = False
 
-    _apply_appearance(design, base_comp, "Plastic - Matte (White)")
-    _apply_appearance(design, code_comp, "Plastic - Matte (Black)")
+    # Tag what we made so a rerun can delete exactly it, and colour the two
+    # materials differently. In a Part Design document these bodies sit in the
+    # root component alongside the user's own, hence the token comparison.
+    components = [base_comp] if code_comp is base_comp else [base_comp, code_comp]
+    ours = [
+        body
+        for component in components
+        for body in component.bRepBodies
+        if body.entityToken not in pre_existing
+    ]
+    base_token = base_body.entityToken
+    for body in ours:
+        body.attributes.add(ATTR_GROUP, "marker", "1")
+        if code_comp is root and body.entityToken != base_token:
+            body.name = "Code"  # Fusion appends a suffix for duplicates
+    _apply_appearance(design, [base_body], "Plastic - Matte (White)")
+    _apply_appearance(
+        design,
+        [body for body in ours if body.entityToken != base_token],
+        "Plastic - Matte (Black)",
+    )
 
     save_params(design, params)
 
@@ -336,7 +372,8 @@ def generate(design, params):
         "pitch_mm": round(pitch * 10, 4),
         "plate_mm": [round(plate_w * 10, 2), round((plate_w + band) * 10, 2)],
         "dark_modules": sum(map(sum, matrix)),
-        "code_bodies": sum(1 for b in code_comp.bRepBodies if b.isSolid),
+        "code_bodies": sum(1 for b in ours if b.isSolid) - 1,  # minus the base
+        "layout": "root" if code_comp is root else "components",
         "payload_len": len(payload),
         "mode": params.get("mode", payloads.MODE_WIFI),
     }
