@@ -78,6 +78,10 @@ the existing plate rather than adding a second one.
 
 - **Module size drives scannability.** Aim for ~0.8 mm or larger; the dialog
   warns below that. Longer payloads need a bigger plate.
+- **Test-scan before printing.** Click **TOP** on the view cube and set the
+  display to **Shaded** (no visible edges) — the raised code is painted black
+  against a white plate, so a phone reads it straight off the screen. The
+  default isometric view outlines every module in grey and rarely scans.
 - **Contact cards with a photo URL** switch from MECARD to vCard 3.0 and get
   noticeably larger — plan on a ~55 mm plate or wider.
 - **Images cannot be embedded.** QR capacity tops out around 2–3 KB, far
